@@ -6,15 +6,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let recognition;
     let isRecording = false;
-    let currentAudio = null; // Track currently playing audio
+    let currentAudio = null;
 
-    // Initialize Speech Recognition (for voice input)
+    // Initialize Speech Recognition (for voice input - supports Telugu)
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognition = new SpeechRecognition();
         recognition.continuous = false;
         recognition.interimResults = false;
-        recognition.lang = 'en-US';
+        recognition.lang = 'te-IN'; // Telugu
 
         recognition.onstart = () => {
             isRecording = true;
@@ -29,7 +29,6 @@ document.addEventListener('DOMContentLoaded', () => {
         recognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
             userInput.value = transcript;
-            // Auto-send after voice input
             sendMessage();
         };
 
@@ -40,7 +39,6 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     } else {
         micBtn.style.display = 'none';
-        console.log('Speech recognition not supported');
     }
 
     window.toggleRecording = () => {
@@ -48,9 +46,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isRecording) {
             recognition.stop();
         } else {
-            stopCurrentAudio(); // Stop AI from talking
+            stopCurrentAudio();
             recognition.start();
         }
+    };
+
+    // Quick prompt buttons
+    window.sendQuickPrompt = (text) => {
+        userInput.value = text;
+        sendMessage();
     };
 
     // Auto-resize textarea
@@ -71,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.sendMessage = async () => {
-        stopCurrentAudio(); // Stop any playing audio
+        stopCurrentAudio();
 
         const message = userInput.value.trim();
         if (!message) return;
@@ -97,10 +101,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (response.ok) {
                 addMessage('ai', data.response);
-                // Generate and play Gemini TTS audio
+                // Generate and play Gemini TTS audio (Telugu)
                 speakWithGemini(data.response);
             } else {
-                addMessage('system', 'Error: ' + (data.error || 'Something went wrong'));
+                addMessage('system', 'Error: ' + (data.error || 'ఏదో తప్పు జరిగింది'));
             }
         } catch (error) {
             removeLoadingIndicator(loadingId);
@@ -114,7 +118,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function speakWithGemini(text) {
         try {
-            // Show a subtle speaking indicator
             const speakingIndicator = document.getElementById('speaking-indicator');
             if (speakingIndicator) speakingIndicator.classList.add('active');
 
@@ -127,7 +130,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (response.ok && data.audio) {
-                // Decode base64 WAV and play it
                 const audioBytes = atob(data.audio);
                 const arrayBuffer = new ArrayBuffer(audioBytes.length);
                 const view = new Uint8Array(arrayBuffer);
@@ -171,11 +173,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window.clearHistory = async () => {
-        if (confirm('Are you sure you want to clear the chat history?')) {
+        if (confirm('చరిత్ర తొలగించాలా?')) {
             try {
                 await fetch('/clear_history', { method: 'POST' });
                 chatMessages.innerHTML = '';
-                addMessage('system', 'Chat history cleared.');
+                addMessage('system', '🙏 చరిత్ర తొలగించబడింది. కొత్త కథ అడగండి!');
             } catch (e) {
                 console.error(e);
             }
@@ -206,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const loadingDiv = document.createElement('div');
         loadingDiv.id = id;
         loadingDiv.classList.add('message', 'ai-msg', 'loading-msg');
-        loadingDiv.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Thinking...';
+        loadingDiv.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> కథ తయారు చేస్తున్నాను...';
         chatMessages.appendChild(loadingDiv);
         scrollToBottom();
         return id;
