@@ -2,12 +2,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatMessages = document.getElementById('chat-messages');
     const userInput = document.getElementById('user-input');
     const sendBtn = document.getElementById('send-btn');
-
     const micBtn = document.getElementById('mic-btn');
+
     let recognition;
     let isRecording = false;
+    let currentAudio = null; // Track currently playing audio
 
-    // Initialize Speech Recognition
+    // Initialize Speech Recognition (for voice input)
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognition = new SpeechRecognition();
@@ -28,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
         recognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
             userInput.value = transcript;
-            // Auto-send after voice input for natural flow
+            // Auto-send after voice input
             sendMessage();
         };
 
@@ -47,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isRecording) {
             recognition.stop();
         } else {
-            window.speechSynthesis.cancel(); // Stop AI from talking
+            stopCurrentAudio(); // Stop AI from talking
             recognition.start();
         }
     };
@@ -57,11 +58,11 @@ document.addEventListener('DOMContentLoaded', () => {
         this.style.height = 'auto';
         this.style.height = (this.scrollHeight) + 'px';
         if (this.value === '') {
-            this.style.height = 'auto'; // Reset
+            this.style.height = 'auto';
         }
     });
 
-    // Send on Enter (but Shift+Enter for new line)
+    // Send on Enter (Shift+Enter for new line)
     userInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -70,45 +71,37 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.sendMessage = async () => {
-        // Stop any current speech
-        window.speechSynthesis.cancel();
+        stopCurrentAudio(); // Stop any playing audio
 
         const message = userInput.value.trim();
         if (!message) return;
 
-        // Add User Message immediately
         addMessage('user', message);
         userInput.value = '';
-        userInput.style.height = 'auto'; // Reset height
+        userInput.style.height = 'auto';
 
-        // Disable input while waiting
         userInput.disabled = true;
         sendBtn.disabled = true;
 
-        // Show loading indicator
         const loadingId = addLoadingIndicator();
 
         try {
             const response = await fetch('/chat', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: message })
             });
 
             const data = await response.json();
-
-            // Remove loading indicator
             removeLoadingIndicator(loadingId);
 
             if (response.ok) {
                 addMessage('ai', data.response);
-                speakText(data.response); // Speak the response
+                // Generate and play Gemini TTS audio
+                speakWithGemini(data.response);
             } else {
                 addMessage('system', 'Error: ' + (data.error || 'Something went wrong'));
             }
-
         } catch (error) {
             removeLoadingIndicator(loadingId);
             addMessage('system', 'Network Error: ' + error.message);
@@ -119,18 +112,62 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    function speakText(text) {
-        if (!('speechSynthesis' in window)) return;
+    async function speakWithGemini(text) {
+        try {
+            // Show a subtle speaking indicator
+            const speakingIndicator = document.getElementById('speaking-indicator');
+            if (speakingIndicator) speakingIndicator.classList.add('active');
 
-        // Basic cleanup of markdown for speech
-        const cleanText = text.replace(/[*#`]/g, '');
+            const response = await fetch('/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text })
+            });
 
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        // Optional: Select voice, rate, pitch
-        // const voices = window.speechSynthesis.getVoices();
-        // utterance.voice = voices.find(voice => voice.name.includes('Google US English')); 
+            const data = await response.json();
 
-        window.speechSynthesis.speak(utterance);
+            if (response.ok && data.audio) {
+                // Decode base64 WAV and play it
+                const audioBytes = atob(data.audio);
+                const arrayBuffer = new ArrayBuffer(audioBytes.length);
+                const view = new Uint8Array(arrayBuffer);
+                for (let i = 0; i < audioBytes.length; i++) {
+                    view[i] = audioBytes.charCodeAt(i);
+                }
+
+                const audioBlob = new Blob([arrayBuffer], { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+
+                currentAudio = new Audio(audioUrl);
+                currentAudio.onended = () => {
+                    if (speakingIndicator) speakingIndicator.classList.remove('active');
+                    URL.revokeObjectURL(audioUrl);
+                    currentAudio = null;
+                };
+                currentAudio.onerror = () => {
+                    if (speakingIndicator) speakingIndicator.classList.remove('active');
+                    currentAudio = null;
+                };
+                currentAudio.play();
+            } else {
+                console.error('TTS error:', data.error);
+                if (speakingIndicator) speakingIndicator.classList.remove('active');
+            }
+        } catch (error) {
+            console.error('TTS fetch error:', error);
+            const speakingIndicator = document.getElementById('speaking-indicator');
+            if (speakingIndicator) speakingIndicator.classList.remove('active');
+        }
+    }
+
+    function stopCurrentAudio() {
+        if (currentAudio) {
+            currentAudio.pause();
+            currentAudio.currentTime = 0;
+            currentAudio = null;
+        }
+        const speakingIndicator = document.getElementById('speaking-indicator');
+        if (speakingIndicator) speakingIndicator.classList.remove('active');
     }
 
     window.clearHistory = async () => {
@@ -143,7 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error(e);
             }
         }
-    }
+    };
 
     function addMessage(role, text) {
         const messageDiv = document.createElement('div');
@@ -154,7 +191,6 @@ document.addEventListener('DOMContentLoaded', () => {
             messageDiv.innerHTML = `<p>${formatText(text)}</p>`;
         } else if (role === 'ai') {
             messageDiv.classList.add('ai-msg');
-            // Check for code blocks or simple markdown (basic implementation)
             messageDiv.innerHTML = formatAIResponse(text);
         } else {
             messageDiv.classList.add('system-message');
@@ -178,33 +214,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function removeLoadingIndicator(id) {
         const element = document.getElementById(id);
-        if (element) {
-            element.remove();
-        }
+        if (element) element.remove();
     }
 
     function scrollToBottom() {
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    // Simple helper to format text (convert newlines to <br>)
     function formatText(text) {
         return text.replace(/\n/g, '<br>');
     }
 
-    // Basic Markdown parser for AI response
     function formatAIResponse(text) {
-        // Convert bold
         let formatted = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        // Convert italics
         formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
-        // Convert code blocks (simplified)
         formatted = formatted.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-        // Convert inline code
         formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
-        // Convert newlines
         formatted = formatted.replace(/\n/g, '<br>');
-
         return formatted;
     }
 });

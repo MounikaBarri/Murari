@@ -1,6 +1,10 @@
-from flask import Flask, render_template, request, jsonify
-import google.generativeai as genai
+from flask import Flask, render_template, request, jsonify, send_file
+from google import genai
+from google.genai import types
 import os
+import io
+import wave
+import base64
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -8,87 +12,129 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Basic user input logic for API key if missing
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-else:
-    print("Warning: GEMINI_API_KEY is not set in environment variables.")
+if not GEMINI_API_KEY:
+    print("WARNING: GEMINI_API_KEY is not set in environment variables.")
 
-# Create the model configuration
-# Using a standard configuration; can be tuned further
-generation_config = {
-    "temperature": 0.9,
-    "top_p": 1,
-    "top_k": 1,
-    "max_output_tokens": 2048,
-}
+# Initialize the new genai Client
+client = genai.Client(api_key=GEMINI_API_KEY)
 
-safety_settings = [
-    {
-        "category": "HARM_CATEGORY_HARASSMENT",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-    },
-    {
-        "category": "HARM_CATEGORY_HATE_SPEECH",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-    },
-    {
-        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-    },
-    {
-        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-    },
-]
+# Chat model name
+CHAT_MODEL = "gemini-2.5-flash"
+# TTS model name
+TTS_MODEL = "gemini-2.5-flash-preview-tts"
+# Default TTS voice
+TTS_VOICE = "Kore"
 
-try:
-    model = genai.GenerativeModel(model_name="gemini-2.5-flash",
-                                  generation_config=generation_config,
-                                  safety_settings=safety_settings)
-except Exception as e:
-    print(f"Error initializing model: {e}")
-    model = None
+chat_history = []
 
-chat_history = []  # In-memory simple history for demo purpose (per session would be better generally but keeping it simple)
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
 @app.route('/chat', methods=['POST'])
 def chat():
     global chat_history
     user_input = request.json.get('message')
-    
+
     if not user_input:
         return jsonify({'error': 'No message provided'}), 400
 
-    if not model:
-        return jsonify({'error': 'Model not initialized. Check server logs for API key status.'}), 500
-
     try:
-        # Start chat session or continue existing chat
-        # For simplicity in this demo, we'll use start_chat with history
-        chat_session = model.start_chat(history=chat_history)
-        response = chat_session.send_message(user_input)
-        
+        # Build the contents list from history + new message
+        contents = []
+        for msg in chat_history:
+            contents.append(
+                types.Content(
+                    role=msg['role'],
+                    parts=[types.Part.from_text(text=msg['text'])]
+                )
+            )
+        contents.append(
+            types.Content(
+                role='user',
+                parts=[types.Part.from_text(text=user_input)]
+            )
+        )
+
+        response = client.models.generate_content(
+            model=CHAT_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                temperature=0.9,
+                max_output_tokens=2048,
+            )
+        )
+
+        ai_text = response.text
+
         # Update history
-        chat_history.append({'role': 'user', 'parts': [user_input]})
-        chat_history.append({'role': 'model', 'parts': [response.text]})
-        
-        return jsonify({'response': response.text})
+        chat_history.append({'role': 'user', 'text': user_input})
+        chat_history.append({'role': 'model', 'text': ai_text})
+
+        return jsonify({'response': ai_text})
 
     except Exception as e:
+        print(f"Chat error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/tts', methods=['POST'])
+def tts():
+    """Generate speech audio from text using Gemini TTS."""
+    text = request.json.get('text')
+    voice = request.json.get('voice', TTS_VOICE)
+
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400
+
+    try:
+        # Use the Gemini TTS model
+        response = client.models.generate_content(
+            model=TTS_MODEL,
+            contents=f"Say: {text}",
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=voice,
+                        )
+                    ),
+                ),
+            )
+        )
+
+        # Extract raw PCM audio data
+        audio_data = response.candidates[0].content.parts[0].inline_data.data
+
+        # Convert PCM to WAV in memory
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
+            wf.writeframes(audio_data)
+
+        wav_buffer.seek(0)
+        audio_base64 = base64.b64encode(wav_buffer.read()).decode('utf-8')
+
+        return jsonify({'audio': audio_base64})
+
+    except Exception as e:
+        print(f"TTS error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/clear_history', methods=['POST'])
 def clear_history():
     global chat_history
     chat_history = []
     return jsonify({'status': 'History cleared'})
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
