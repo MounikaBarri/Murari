@@ -445,3 +445,43 @@ button#mic-btn.recording {
         max-width: 90%;
     }
 }
+
+.emotion-box {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.emotion-box button {
+    background-color: #ff9800;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+}
+
+.emotion-box button:hover {
+    background-color: #e68900;
+}
+
+#emotionOutput {
+    margin-top: 10px;
+    font-weight: bold;
+    color: #ffd700;
+}
+
+#camera-btn {
+    background: transparent;
+    border: none;
+    color: #ffd700;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+#camera-btn:hover {
+    background-color: rgba(255, 215, 0, 0.1);
+    transform: scale(1.1);
+}

@@ -7,6 +7,12 @@ import wave
 import base64
 import re
 from dotenv import load_dotenv
+from emotion_detector import detect_emotion_from_frame
+import numpy as np
+import cv2
+#from models.face_emotion import detect_face_emotion
+
+
 
 # Load environment variables
 load_dotenv()
@@ -63,6 +69,7 @@ def load_mahabharata():
         MAHABHARATA_CHUNKS.append(chunk)
 
     print(f"Loaded {len(MAHABHARATA_CHUNKS)} chunks from Mahabharata.txt")
+
 
 
 def search_chunks(query, top_k=3):
@@ -248,11 +255,43 @@ def tts():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route("/detect_emotion", methods=["POST"])
+def detect_emotion():
+
+    data = request.json.get("image")
+
+    if not data:
+        return jsonify({"error": "No image"}), 400
+
+    image_data = base64.b64decode(data.split(",")[1])
+    np_arr = np.frombuffer(image_data, np.uint8)
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    emotion, confidence = detect_emotion_from_frame(frame)
+
+    telugu_map = {
+        "Angry": "కోపం",
+        "Cry": "బాధ",
+        "Laugh": "ఆనందం",
+        "Normal": "సాధారణం",
+        "No Face": "ముఖం కనిపించలేదు"
+    }
+
+    telugu_emotion = telugu_map.get(emotion, "తెలియలేదు")
+
+    return jsonify({
+        "emotion": telugu_emotion,
+        "confidence": round(confidence, 2)
+    })
+
 @app.route('/clear_history', methods=['POST'])
 def clear_history():
     global chat_history
     chat_history = []
     return jsonify({'status': 'History cleared'})
+
+
+
 
 
 if __name__ == '__main__':

@@ -1,3 +1,11 @@
 flask
+flask_sqlalchemy
+flask_login
 google-genai
 python-dotenv
+opencv-python
+numpy
+tensorflow
+scikit-learn
+pillow
+gunicorn

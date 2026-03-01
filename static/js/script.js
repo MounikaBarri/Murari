@@ -1,20 +1,31 @@
 document.addEventListener('DOMContentLoaded', () => {
+
     const chatMessages = document.getElementById('chat-messages');
     const userInput = document.getElementById('user-input');
     const sendBtn = document.getElementById('send-btn');
     const micBtn = document.getElementById('mic-btn');
+    const emotionOutput = document.getElementById('emotionOutput');
+
+    const cameraBtn = document.getElementById("camera-btn");
+    const video = document.getElementById("cameraPreview");
+    const canvas = document.getElementById("captureCanvas");
 
     let recognition;
     let isRecording = false;
     let currentAudio = null;
 
-    // Initialize Speech Recognition (for voice input - supports Telugu)
+    /* ==============================
+       🎤 SPEECH RECOGNITION
+    ============================== */
+
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognition = new SpeechRecognition();
+
         recognition.continuous = false;
         recognition.interimResults = false;
-        recognition.lang = 'te-IN'; // Telugu
+        recognition.lang = 'te-IN';
 
         recognition.onstart = () => {
             isRecording = true;
@@ -32,17 +43,18 @@ document.addEventListener('DOMContentLoaded', () => {
             sendMessage();
         };
 
-        recognition.onerror = (event) => {
-            console.error('Speech recognition error', event.error);
+        recognition.onerror = () => {
             isRecording = false;
             micBtn.classList.remove('recording');
         };
+
     } else {
         micBtn.style.display = 'none';
     }
 
     window.toggleRecording = () => {
         if (!recognition) return;
+
         if (isRecording) {
             recognition.stop();
         } else {
@@ -51,30 +63,77 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Quick prompt buttons
-    window.sendQuickPrompt = (text) => {
-        userInput.value = text;
-        sendMessage();
-    };
+    /* ==============================
+       📹 CAMERA + EMOTION DETECTION
+    ============================== */
 
-    // Auto-resize textarea
-    userInput.addEventListener('input', function () {
-        this.style.height = 'auto';
-        this.style.height = (this.scrollHeight) + 'px';
-        if (this.value === '') {
-            this.style.height = 'auto';
+    cameraBtn.addEventListener("click", async () => {
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+            video.srcObject = stream;
+            video.style.display = "block";
+
+            emotionOutput.innerText = "కెమెరా ప్రారంభమైంది...";
+
+            setTimeout(async () => {
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0);
+
+                const imageData = canvas.toDataURL("image/jpeg");
+
+                stream.getTracks().forEach(track => track.stop());
+                video.style.display = "none";
+
+                emotionOutput.innerText = "భావం గుర్తిస్తున్నాను...";
+
+                const response = await fetch("/detect_emotion", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image: imageData })
+                });
+
+                const data = await response.json();
+
+                emotionOutput.innerText = "భావం: " + data.emotion;
+
+                if (data.emotion !== "ముఖం కనిపించలేదు") {
+
+                    let emotionMessage = "";
+
+                    if (data.emotion === "బాధ")
+                        emotionMessage = "నాకు బాధగా ఉంది";
+                    else if (data.emotion === "కోపం")
+                        emotionMessage = "నాకు కోపంగా ఉంది";
+                    else if (data.emotion === "ఆనందం")
+                        emotionMessage = "నేను చాలా సంతోషంగా ఉన్నాను";
+                    else
+                        emotionMessage = "నేను సాధారణంగా ఉన్నాను";
+
+                    userInput.value = emotionMessage;
+                    sendMessage();
+                }
+
+            }, 2500);
+
+        } catch (error) {
+            emotionOutput.innerText = "కెమెరా అనుమతి ఇవ్వండి";
+            console.error(error);
         }
+
     });
 
-    // Send on Enter (Shift+Enter for new line)
-    userInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
+    /* ==============================
+       📤 SEND MESSAGE
+    ============================== */
 
     window.sendMessage = async () => {
+
         stopCurrentAudio();
 
         const message = userInput.value.trim();
@@ -93,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: message })
+                body: JSON.stringify({ message })
             });
 
             const data = await response.json();
@@ -101,14 +160,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (response.ok) {
                 addMessage('ai', data.response);
-                // Generate and play Gemini TTS audio (Telugu)
                 speakWithGemini(data.response);
             } else {
-                addMessage('system', 'Error: ' + (data.error || 'ఏదో తప్పు జరిగింది'));
+                addMessage('system', '❌ ' + (data.error || 'ఏదో తప్పు జరిగింది'));
             }
+
         } catch (error) {
             removeLoadingIndicator(loadingId);
-            addMessage('system', 'Network Error: ' + error.message);
+            addMessage('system', '🌐 Network Error');
         } finally {
             userInput.disabled = false;
             sendBtn.disabled = false;
@@ -116,50 +175,47 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    async function speakWithGemini(text) {
-        try {
-            const speakingIndicator = document.getElementById('speaking-indicator');
-            if (speakingIndicator) speakingIndicator.classList.add('active');
+    /* ==============================
+       🔊 GEMINI TTS
+    ============================== */
 
+    async function speakWithGemini(text) {
+
+        const speakingIndicator = document.getElementById('speaking-indicator');
+        speakingIndicator?.classList.add('active');
+
+        try {
             const response = await fetch('/tts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: text })
+                body: JSON.stringify({ text })
             });
 
             const data = await response.json();
 
             if (response.ok && data.audio) {
-                const audioBytes = atob(data.audio);
-                const arrayBuffer = new ArrayBuffer(audioBytes.length);
-                const view = new Uint8Array(arrayBuffer);
-                for (let i = 0; i < audioBytes.length; i++) {
-                    view[i] = audioBytes.charCodeAt(i);
-                }
 
-                const audioBlob = new Blob([arrayBuffer], { type: 'audio/wav' });
+                const audioBlob = new Blob(
+                    [Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))],
+                    { type: 'audio/wav' }
+                );
+
                 const audioUrl = URL.createObjectURL(audioBlob);
-
                 currentAudio = new Audio(audioUrl);
+
                 currentAudio.onended = () => {
-                    if (speakingIndicator) speakingIndicator.classList.remove('active');
+                    speakingIndicator?.classList.remove('active');
                     URL.revokeObjectURL(audioUrl);
-                    currentAudio = null;
                 };
-                currentAudio.onerror = () => {
-                    if (speakingIndicator) speakingIndicator.classList.remove('active');
-                    currentAudio = null;
-                };
+
                 currentAudio.play();
-            } else {
-                console.error('TTS error:', data.error);
-                if (speakingIndicator) speakingIndicator.classList.remove('active');
             }
+
         } catch (error) {
-            console.error('TTS fetch error:', error);
-            const speakingIndicator = document.getElementById('speaking-indicator');
-            if (speakingIndicator) speakingIndicator.classList.remove('active');
+            console.error(error);
         }
+
+        speakingIndicator?.classList.remove('active');
     }
 
     function stopCurrentAudio() {
@@ -168,71 +224,47 @@ document.addEventListener('DOMContentLoaded', () => {
             currentAudio.currentTime = 0;
             currentAudio = null;
         }
-        const speakingIndicator = document.getElementById('speaking-indicator');
-        if (speakingIndicator) speakingIndicator.classList.remove('active');
     }
 
-    window.clearHistory = async () => {
-        if (confirm('చరిత్ర తొలగించాలా?')) {
-            try {
-                await fetch('/clear_history', { method: 'POST' });
-                chatMessages.innerHTML = '';
-                addMessage('system', '🙏 చరిత్ర తొలగించబడింది. కొత్త కథ అడగండి!');
-            } catch (e) {
-                console.error(e);
-            }
-        }
-    };
+    /* ==============================
+       💬 UI HELPERS
+    ============================== */
 
     function addMessage(role, text) {
-        const messageDiv = document.createElement('div');
-        messageDiv.classList.add('message');
+
+        const div = document.createElement('div');
+        div.classList.add('message');
 
         if (role === 'user') {
-            messageDiv.classList.add('user-msg');
-            messageDiv.innerHTML = `<p>${formatText(text)}</p>`;
-        } else if (role === 'ai') {
-            messageDiv.classList.add('ai-msg');
-            messageDiv.innerHTML = formatAIResponse(text);
-        } else {
-            messageDiv.classList.add('system-message');
-            messageDiv.textContent = text;
+            div.classList.add('user-msg');
+            div.textContent = text;
+        }
+        else if (role === 'ai') {
+            div.classList.add('ai-msg');
+            div.textContent = text;
+        }
+        else {
+            div.classList.add('system-message');
+            div.textContent = text;
         }
 
-        chatMessages.appendChild(messageDiv);
-        scrollToBottom();
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
     function addLoadingIndicator() {
-        const id = 'loading-' + Date.now();
-        const loadingDiv = document.createElement('div');
-        loadingDiv.id = id;
-        loadingDiv.classList.add('message', 'ai-msg', 'loading-msg');
-        loadingDiv.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> కథ తయారు చేస్తున్నాను...';
-        chatMessages.appendChild(loadingDiv);
-        scrollToBottom();
+        const id = "loading-" + Date.now();
+        const div = document.createElement('div');
+        div.id = id;
+        div.classList.add('message', 'ai-msg');
+        div.textContent = "⏳ కథ తయారు చేస్తున్నాను...";
+        chatMessages.appendChild(div);
         return id;
     }
 
     function removeLoadingIndicator(id) {
-        const element = document.getElementById(id);
-        if (element) element.remove();
+        const el = document.getElementById(id);
+        if (el) el.remove();
     }
 
-    function scrollToBottom() {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-
-    function formatText(text) {
-        return text.replace(/\n/g, '<br>');
-    }
-
-    function formatAIResponse(text) {
-        let formatted = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
-        formatted = formatted.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-        formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
-        formatted = formatted.replace(/\n/g, '<br>');
-        return formatted;
-    }
 });

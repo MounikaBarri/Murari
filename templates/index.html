@@ -6,21 +6,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>మురారి - మహాభారత కథలు</title>
     <meta name="description" content="పిల్లల కోసం తెలుగులో మహాభారత కథలు చెప్పే AI">
+
+    <!-- CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link
-        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Noto+Sans+Telugu:wght@300;400;500;600;700&display=swap"
-        rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
-        integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg=="
-        crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Noto+Sans+Telugu:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+        crossorigin="anonymous"
+        referrerpolicy="no-referrer" />
 </head>
 
 <body>
 
     <div class="app-container">
 
-        <!-- Sidebar -->
+        <!-- ================= SIDEBAR ================= -->
         <nav class="sidebar">
+
             <div class="logo">
                 <span class="logo-icon">🙏</span>
                 <div class="logo-text">
@@ -30,10 +36,15 @@
             </div>
 
             <div class="nav-links">
-                <a href="#" class="active"><i class="fa-regular fa-comment-dots"></i> కొత్త కథ</a>
-                <a href="#" onclick="clearHistory()"><i class="fa-solid fa-trash-can"></i> చరిత్ర తొలగించు</a>
+                <a href="#" class="active">
+                    <i class="fa-regular fa-comment-dots"></i> కొత్త కథ
+                </a>
+                <a href="#" onclick="clearHistory()">
+                    <i class="fa-solid fa-trash-can"></i> చరిత్ర తొలగించు
+                </a>
             </div>
 
+            <!-- Story Quick Prompts -->
             <div class="quick-prompts">
                 <p class="section-label">📖 కథలు:</p>
                 <button class="prompt-btn" onclick="sendQuickPrompt('భీముడి కథ చెప్పు')">🏋️ భీముడు</button>
@@ -42,15 +53,16 @@
                 <button class="prompt-btn" onclick="sendQuickPrompt('కర్ణుడి కథ చెప్పు')">🌟 కర్ణుడు</button>
             </div>
 
+            <!-- Emotion Quick Prompts -->
             <div class="quick-prompts">
                 <p class="section-label">💬 కబుర్లు:</p>
-                <button class="prompt-btn" onclick="sendQuickPrompt('తాతయ్యా, నేను చాలా సంతోషంగా ఉన్నాను!')">😊
-                    సంతోషం</button>
-                <button class="prompt-btn" onclick="sendQuickPrompt('తాతయ్యా, నాకు బాధగా ఉంది')">😢 బాధ</button>
-                <button class="prompt-btn" onclick="sendQuickPrompt('తాతయ్యా, నాకు భయంగా ఉంది')">😨 భయం</button>
-                <button class="prompt-btn" onclick="sendQuickPrompt('తాతయ్యా, నాకు బోరు కొడుతోంది')">😴 బోరు</button>
+                <button class="prompt-btn" onclick="sendQuickPrompt('మురారి, నేను చాలా సంతోషంగా ఉన్నాను!')">😊 సంతోషం</button>
+                <button class="prompt-btn" onclick="sendQuickPrompt('మురారి, నాకు బాధగా ఉంది')">😢 బాధ</button>
+                <button class="prompt-btn" onclick="sendQuickPrompt('మురారి, నాకు భయంగా ఉంది')">😨 భయం</button>
+                <button class="prompt-btn" onclick="sendQuickPrompt('మురారి, నాకు బోరు కొడుతోంది')">😴 బోరు</button>
             </div>
 
+            <!-- User Profile -->
             <div class="user-profile">
                 <div class="user-avatar">👶</div>
                 <div class="user-info">
@@ -58,48 +70,70 @@
                     <span class="user-status">ఆన్‌లైన్</span>
                 </div>
             </div>
+
         </nav>
 
-        <!-- Main Chat Area -->
+        <!-- ================= MAIN CHAT ================= -->
         <main class="chat-interface">
+
             <header class="chat-header">
                 <div class="header-left">
-                    <h1>మురారి 🙏 </h1>
-                    <p class="header-tagline">పిల్లల AI నేస్తం  — కథలు, కబుర్లు, ప్రేమ 💛</p>
+                    <h1>మురారి 🙏</h1>
+                    <p class="header-tagline">పిల్లల AI నేస్తం — కథలు, కబుర్లు, ప్రేమ 💛</p>
                 </div>
+
                 <div class="header-right">
                     <div id="speaking-indicator" class="speaking-indicator">
                         <i class="fa-solid fa-volume-high"></i> చెప్తున్నాను...
                     </div>
+
                     <div class="status-indicator">
                         <span class="dot"></span> సిద్ధం
                     </div>
                 </div>
             </header>
 
+            <!-- Chat Messages -->
             <div class="chat-messages" id="chat-messages">
                 <div class="message system-message">
-                    🙏 నమస్కారం బంగారు! నేను మురారిని. నీతో కబుర్లు చెప్తాను, కథలు చెప్తాను! ఎలా ఉన్నావు నాన్నా?
-                    💛
+                    🙏 నమస్కారం బంగారు! నేను మురారిని. నీతో కబుర్లు చెప్తాను, కథలు చెప్తాను! ఎలా ఉన్నావు నాన్నా? 💛
                 </div>
             </div>
 
+            <!-- ================= INPUT AREA ================= -->
             <div class="input-area">
                 <div class="input-wrapper">
-                    <textarea id="user-input" placeholder="తాతయ్యతో మాట్లాడు... 💬" rows="1"></textarea>
+
+                    <textarea id="user-input"
+                        placeholder="మురారి మాట్లాడు... 💬"
+                        rows="1"></textarea>
+
                     <button id="mic-btn" onclick="toggleRecording()">
                         <i class="fa-solid fa-microphone"></i>
+                    </button>
+                    
+                    <button id="camera-btn">
+                        <i class="fa-solid fa-video"></i>
                     </button>
                     <button id="send-btn" onclick="sendMessage()">
                         <i class="fa-solid fa-paper-plane"></i>
                     </button>
+
                 </div>
+
+                
+
             </div>
+
         </main>
 
     </div>
 
+    <video id="cameraPreview" autoplay style="display:none;"></video>
+    <canvas id="captureCanvas" style="display:none;"></canvas>
+    <!-- JS -->
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+
 </body>
 
 </html>
