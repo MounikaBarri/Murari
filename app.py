@@ -10,16 +10,21 @@ from dotenv import load_dotenv
 from emotion_detector import detect_emotion_from_frame
 import numpy as np
 import cv2
+from pathlib import Path
 #from models.face_emotion import detect_face_emotion
 
 
 
 # Load environment variables
-load_dotenv()
+env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 app = Flask(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+print("ENV PATH:", env_path)
+print("Loaded key:", GEMINI_API_KEY)
 
 if not GEMINI_API_KEY:
     print("WARNING: GEMINI_API_KEY is not set in environment variables.")
@@ -295,4 +300,4 @@ def clear_history():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000)                
