@@ -10,52 +10,46 @@ from dotenv import load_dotenv
 from emotion_detector import detect_emotion_from_frame
 import numpy as np
 import cv2
-from pathlib import Path
-#from models.face_emotion import detect_face_emotion
 
-
-
-# Load environment variables
-env_path = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=env_path)
-
-app = Flask(__name__)
+# ==========================================================
+# Load Environment Variables
+# ==========================================================
+load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-print("ENV PATH:", env_path)
-print("Loaded key:", GEMINI_API_KEY)
-
 if not GEMINI_API_KEY:
-    print("WARNING: GEMINI_API_KEY is not set in environment variables.")
+    raise ValueError("❌ GEMINI_API_KEY not found in .env file")
 
-# Initialize the genai Client
+# Initialize Gemini Client
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Models
+# ==========================================================
+# Flask App
+# ==========================================================
+app = Flask(__name__)
+
 CHAT_MODEL = "gemini-2.5-flash"
 TTS_MODEL = "gemini-2.5-flash-preview-tts"
-TTS_VOICE = "Kore"  # A warm, friendly voice
+TTS_VOICE = "Kore"
 
-# ============================================================
-# RAG: Load Mahabharata.txt and chunk it
-# ============================================================
+# ==========================================================
+# RAG: Load Mahabharata
+# ==========================================================
 MAHABHARATA_CHUNKS = []
 
 def load_mahabharata():
-    """Load Mahabharata.txt and split into chapter-based chunks."""
     global MAHABHARATA_CHUNKS
+
     filepath = os.path.join(os.path.dirname(__file__), "Mahabharata.txt")
+
     if not os.path.exists(filepath):
-        print("WARNING: Mahabharata.txt not found!")
+        print("⚠ Mahabharata.txt not found")
         return
 
     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         content = f.read()
 
-    # Split by chapters (each chapter starts with "Chapter" followed by a number/word)
-    # We'll use a simpler approach: split by double newlines into paragraphs,
-    # then group them into chunks of ~2000 chars
     paragraphs = re.split(r'\n\s*\n', content)
 
     chunk = ""
@@ -63,6 +57,7 @@ def load_mahabharata():
         para = para.strip()
         if not para:
             continue
+
         if len(chunk) + len(para) > 2000:
             if chunk:
                 MAHABHARATA_CHUNKS.append(chunk)
@@ -73,41 +68,43 @@ def load_mahabharata():
     if chunk:
         MAHABHARATA_CHUNKS.append(chunk)
 
-    print(f"Loaded {len(MAHABHARATA_CHUNKS)} chunks from Mahabharata.txt")
-
-
+    print(f"✅ Loaded {len(MAHABHARATA_CHUNKS)} chunks")
 
 def search_chunks(query, top_k=3):
-    """Simple keyword-based search to find relevant chunks."""
     query_words = set(query.lower().split())
     scored = []
-    for i, chunk in enumerate(MAHABHARATA_CHUNKS):
+
+    for chunk in MAHABHARATA_CHUNKS:
         chunk_lower = chunk.lower()
         score = sum(1 for word in query_words if word in chunk_lower)
-        # Bonus for exact phrase matches
+
         if query.lower() in chunk_lower:
             score += 10
-        scored.append((score, i, chunk))
+
+        scored.append((score, chunk))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    # Return top_k chunks with score > 0
-    results = [chunk for score, i, chunk in scored[:top_k] if score > 0]
 
-    # If no keyword match, return a random selection of interesting chunks
+    results = [chunk for score, chunk in scored[:top_k] if score > 0]
+
     if not results:
-        import random
-        indices = random.sample(range(len(MAHABHARATA_CHUNKS)), min(top_k, len(MAHABHARATA_CHUNKS)))
-        results = [MAHABHARATA_CHUNKS[i] for i in indices]
+        return MAHABHARATA_CHUNKS[:top_k]
 
     return results
 
-
-# Load on startup
 load_mahabharata()
 
-# ============================================================
-# System prompt for Telugu children's storyteller
-# ============================================================
+# ==========================================================
+# System Prompt
+# ==========================================================
+# SYSTEM_PROMPT = """నువ్వు 'మురారి' అనే పేరు గల తెలుగు AI స్నేహితుడివి.
+# 3-10 ఏళ్ళ పిల్లలతో మాత్రమే మాట్లాడాలి.
+# ఎప్పుడూ తెలుగులో మాత్రమే సమాధానం ఇవ్వాలి.
+# చాలా చిన్న సమాధానాలు (2-5 వాక్యాలు).
+# ప్రతి సమాధానంలో ఒక emoji వాడాలి.
+# ప్రేమగా మాట్లాడాలి.
+# """
+
 SYSTEM_PROMPT = """నువ్వు "మురారి" అనే పేరు గల ఒక తెలుగు AI స్నేహితుడివి. నువ్వు 3-10 ఏళ్ళ చిన్నపిల్లలతో మాట్లాడుతున్నావు. నువ్వు వాళ్ళకి నేస్తం లాంటి వాడివి — ప్రేమగా, ఓపికగా, ఆప్యాయంగా ఉంటావు.
 
 🌟 భాష నియమం (అతి ముఖ్యం):
@@ -142,34 +139,38 @@ SYSTEM_PROMPT = """నువ్వు "మురారి" అనే పేర�
 - సహజంగా, మామూలుగా మాట్లాడు. రోబోట్ లా కాకుండా నిజమైన తాతయ్య లా ఉండు.
 """
 
+
 chat_history = []
 
+# ==========================================================
+# Routes
+# ==========================================================
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
 
+# =========================
+# Chat Route
+# =========================
 @app.route('/chat', methods=['POST'])
 def chat():
     global chat_history
+
     user_input = request.json.get('message')
 
     if not user_input:
         return jsonify({'error': 'No message provided'}), 400
 
     try:
-        # RAG: Find relevant Mahabharata context
-        relevant_chunks = search_chunks(user_input, top_k=3)
-        context_text = "\n\n---\n\n".join(relevant_chunks)
+        relevant_chunks = search_chunks(user_input)
+        context_text = "\n\n".join(relevant_chunks)
 
-        # Build the full prompt with system instructions + context
-        system_with_context = SYSTEM_PROMPT + f"\n\nమహాభారతం సందర్భం (context):\n{context_text}"
+        system_with_context = SYSTEM_PROMPT + "\n\nContext:\n" + context_text
 
-        # Build conversation contents
         contents = []
 
-        # Add chat history
         for msg in chat_history:
             contents.append(
                 types.Content(
@@ -178,10 +179,9 @@ def chat():
                 )
             )
 
-        # Add current user message
         contents.append(
             types.Content(
-                role='user',
+                role="user",
                 parts=[types.Part.from_text(text=user_input)]
             )
         )
@@ -190,59 +190,92 @@ def chat():
             model=CHAT_MODEL,
             contents=contents,
             config=types.GenerateContentConfig(
-                temperature=0.9,
-                max_output_tokens=1024,
+                temperature=0.8,
+                max_output_tokens=500,
                 system_instruction=system_with_context,
             )
         )
 
         ai_text = response.text
 
-        # Update history (keep last 10 messages to avoid token overflow)
         chat_history.append({'role': 'user', 'text': user_input})
         chat_history.append({'role': 'model', 'text': ai_text})
+
         if len(chat_history) > 20:
             chat_history = chat_history[-20:]
 
         return jsonify({'response': ai_text})
 
     except Exception as e:
-        print(f"Chat error: {e}")
+        print("Chat error:", e)
         return jsonify({'error': str(e)}), 500
 
 
+# =========================
+# Emotion Detection Route
+# =========================
+@app.route("/detect_emotion", methods=["POST"])
+def detect_emotion():
+    data = request.json.get("image")
+
+    if not data:
+        return jsonify({"error": "No image"}), 400
+
+    try:
+        image_data = base64.b64decode(data.split(",")[1])
+        np_arr = np.frombuffer(image_data, np.uint8)
+        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        emotion, confidence = detect_emotion_from_frame(frame)
+
+        telugu_map = {
+            "Angry": "కోపం",
+            "Cry": "బాధ",
+            "Laugh": "ఆనందం",
+            "Normal": "సాధారణం",
+            "No Face": "ముఖం కనిపించలేదు"
+        }
+
+        telugu_emotion = telugu_map.get(emotion, "తెలియలేదు")
+
+        return jsonify({
+            "emotion": telugu_emotion,
+            "confidence": round(confidence, 2)
+        })
+
+    except Exception as e:
+        print("Emotion error:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# =========================
+# TTS Route
+# =========================
 @app.route('/tts', methods=['POST'])
 def tts():
-    """Generate speech audio from Telugu text using Gemini TTS."""
     text = request.json.get('text')
-    voice = request.json.get('voice', TTS_VOICE)
 
     if not text:
         return jsonify({'error': 'No text provided'}), 400
 
     try:
-        # Use the Gemini TTS model - the model auto-detects Telugu
-        tts_prompt = f"Say in a warm, gentle, storytelling tone as if talking to children: {text}"
-
         response = client.models.generate_content(
             model=TTS_MODEL,
-            contents=tts_prompt,
+            contents=text,
             config=types.GenerateContentConfig(
                 response_modalities=["AUDIO"],
                 speech_config=types.SpeechConfig(
                     voice_config=types.VoiceConfig(
                         prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name=voice,
+                            voice_name=TTS_VOICE
                         )
-                    ),
-                ),
+                    )
+                )
             )
         )
 
-        # Extract raw PCM audio data
         audio_data = response.candidates[0].content.parts[0].inline_data.data
 
-        # Convert PCM to WAV in memory
         wav_buffer = io.BytesIO()
         with wave.open(wav_buffer, "wb") as wf:
             wf.setnchannels(1)
@@ -256,38 +289,9 @@ def tts():
         return jsonify({'audio': audio_base64})
 
     except Exception as e:
-        print(f"TTS error: {e}")
+        print("TTS error:", e)
         return jsonify({'error': str(e)}), 500
 
-
-@app.route("/detect_emotion", methods=["POST"])
-def detect_emotion():
-
-    data = request.json.get("image")
-
-    if not data:
-        return jsonify({"error": "No image"}), 400
-
-    image_data = base64.b64decode(data.split(",")[1])
-    np_arr = np.frombuffer(image_data, np.uint8)
-    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-    emotion, confidence = detect_emotion_from_frame(frame)
-
-    telugu_map = {
-        "Angry": "కోపం",
-        "Cry": "బాధ",
-        "Laugh": "ఆనందం",
-        "Normal": "సాధారణం",
-        "No Face": "ముఖం కనిపించలేదు"
-    }
-
-    telugu_emotion = telugu_map.get(emotion, "తెలియలేదు")
-
-    return jsonify({
-        "emotion": telugu_emotion,
-        "confidence": round(confidence, 2)
-    })
 
 @app.route('/clear_history', methods=['POST'])
 def clear_history():
@@ -296,8 +300,8 @@ def clear_history():
     return jsonify({'status': 'History cleared'})
 
 
-
-
-
+# ==========================================================
+# Run
+# ==========================================================
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)                
+    app.run(debug=True, port=5000)

@@ -10,13 +10,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const video = document.getElementById("cameraPreview");
     const canvas = document.getElementById("captureCanvas");
 
+    const speakingIndicator = document.getElementById('speaking-indicator');
+
     let recognition;
     let isRecording = false;
     let currentAudio = null;
+    let cameraActive = false;
 
-    /* ==============================
+    /* =========================================
        🎤 SPEECH RECOGNITION
-    ============================== */
+    ========================================= */
 
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
 
@@ -63,74 +66,94 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    /* ==============================
+    /* =========================================
        📹 CAMERA + EMOTION DETECTION
-    ============================== */
+    ========================================= */
 
     cameraBtn.addEventListener("click", async () => {
 
+        if (cameraActive) return;
+        cameraActive = true;
+
         try {
+
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
 
             video.srcObject = stream;
             video.style.display = "block";
 
-            emotionOutput.innerText = "కెమెరా ప్రారంభమైంది...";
+            emotionOutput && (emotionOutput.innerText = "కెమెరా ప్రారంభమైంది...");
 
-            setTimeout(async () => {
+            // Wait until video metadata is ready
+            await new Promise(resolve => {
+                video.onloadedmetadata = () => resolve();
+            });
 
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+            // Small delay for stable frame
+            await new Promise(resolve => setTimeout(resolve, 1500));
 
-                const ctx = canvas.getContext("2d");
-                ctx.drawImage(video, 0, 0);
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
 
-                const imageData = canvas.toDataURL("image/jpeg");
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                stream.getTracks().forEach(track => track.stop());
-                video.style.display = "none";
+            const imageData = canvas.toDataURL("image/jpeg");
 
-                emotionOutput.innerText = "భావం గుర్తిస్తున్నాను...";
+            stream.getTracks().forEach(track => track.stop());
+            video.style.display = "none";
 
-                const response = await fetch("/detect_emotion", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ image: imageData })
-                });
+            emotionOutput && (emotionOutput.innerText = "భావం గుర్తిస్తున్నాను...");
 
-                const data = await response.json();
+            const response = await fetch("/detect_emotion", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ image: imageData })
+            });
 
-                emotionOutput.innerText = "భావం: " + data.emotion;
+            const data = await response.json();
 
-                if (data.emotion !== "ముఖం కనిపించలేదు") {
+            if (!response.ok) {
+                emotionOutput && (emotionOutput.innerText = "❌ లోపం జరిగింది");
+                cameraActive = false;
+                return;
+            }
 
-                    let emotionMessage = "";
+            emotionOutput && (emotionOutput.innerText = "భావం: " + data.emotion);
 
-                    if (data.emotion === "బాధ")
+            if (data.emotion !== "ముఖం కనిపించలేదు") {
+
+                let emotionMessage = "";
+
+                switch (data.emotion) {
+                    case "బాధ":
                         emotionMessage = "నాకు బాధగా ఉంది";
-                    else if (data.emotion === "కోపం")
+                        break;
+                    case "కోపం":
                         emotionMessage = "నాకు కోపంగా ఉంది";
-                    else if (data.emotion === "ఆనందం")
+                        break;
+                    case "ఆనందం":
                         emotionMessage = "నేను చాలా సంతోషంగా ఉన్నాను";
-                    else
+                        break;
+                    default:
                         emotionMessage = "నేను సాధారణంగా ఉన్నాను";
-
-                    userInput.value = emotionMessage;
-                    sendMessage();
                 }
 
-            }, 2500);
+                userInput.value = emotionMessage;
+                sendMessage();
+            }
 
         } catch (error) {
-            emotionOutput.innerText = "కెమెరా అనుమతి ఇవ్వండి";
+            emotionOutput && (emotionOutput.innerText = "కెమెరా అనుమతి ఇవ్వండి");
             console.error(error);
         }
 
+        cameraActive = false;
     });
 
-    /* ==============================
+    /* =========================================
        📤 SEND MESSAGE
-    ============================== */
+    ========================================= */
 
     window.sendMessage = async () => {
 
@@ -140,15 +163,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!message) return;
 
         addMessage('user', message);
-        userInput.value = '';
-        userInput.style.height = 'auto';
 
+        userInput.value = '';
         userInput.disabled = true;
         sendBtn.disabled = true;
 
         const loadingId = addLoadingIndicator();
 
         try {
+
             const response = await fetch('/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -156,6 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const data = await response.json();
+
             removeLoadingIndicator(loadingId);
 
             if (response.ok) {
@@ -168,23 +192,23 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             removeLoadingIndicator(loadingId);
             addMessage('system', '🌐 Network Error');
-        } finally {
-            userInput.disabled = false;
-            sendBtn.disabled = false;
-            userInput.focus();
         }
+
+        userInput.disabled = false;
+        sendBtn.disabled = false;
+        userInput.focus();
     };
 
-    /* ==============================
+    /* =========================================
        🔊 GEMINI TTS
-    ============================== */
+    ========================================= */
 
     async function speakWithGemini(text) {
 
-        const speakingIndicator = document.getElementById('speaking-indicator');
-        speakingIndicator?.classList.add('active');
-
         try {
+
+            speakingIndicator?.classList.add('active');
+
             const response = await fetch('/tts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -201,6 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 );
 
                 const audioUrl = URL.createObjectURL(audioBlob);
+
                 currentAudio = new Audio(audioUrl);
 
                 currentAudio.onended = () => {
@@ -208,14 +233,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     URL.revokeObjectURL(audioUrl);
                 };
 
-                currentAudio.play();
+                await currentAudio.play();
             }
 
         } catch (error) {
             console.error(error);
+            speakingIndicator?.classList.remove('active');
         }
-
-        speakingIndicator?.classList.remove('active');
     }
 
     function stopCurrentAudio() {
@@ -224,11 +248,12 @@ document.addEventListener('DOMContentLoaded', () => {
             currentAudio.currentTime = 0;
             currentAudio = null;
         }
+        speakingIndicator?.classList.remove('active');
     }
 
-    /* ==============================
+    /* =========================================
        💬 UI HELPERS
-    ============================== */
+    ========================================= */
 
     function addMessage(role, text) {
 
@@ -237,17 +262,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (role === 'user') {
             div.classList.add('user-msg');
-            div.textContent = text;
-        }
-        else if (role === 'ai') {
+        } else if (role === 'ai') {
             div.classList.add('ai-msg');
-            div.textContent = text;
-        }
-        else {
+        } else {
             div.classList.add('system-message');
-            div.textContent = text;
         }
 
+        div.textContent = text;
         chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
